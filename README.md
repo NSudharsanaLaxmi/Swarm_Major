@@ -2,6 +2,6 @@
 
 Global tracking canvas running OpenCV ArUco localization with live mission dispatch and broadcast.
 
-## Component Files
-- \$leaf\
+## Files in this Component
+- \$destName\
 
