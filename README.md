@@ -2,6 +2,6 @@
 
 Central configuration containing all frozen motor GPIOs, I2C addresses, servo channels, safety thresholds, and Wi-Fi constants.
 
-## Component Files
-- \$leaf\
+## Files in this Component
+- \$destName\
 
