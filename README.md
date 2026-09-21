@@ -2,6 +2,6 @@
 
 High-level swarm controller for Arduino UNO Q (Qualcomm MPU Linux) interfacing via hardware UART with ESP32.
 
-## Included Files
-- \$fname\
+## Component Files
+- \$leaf\
 
