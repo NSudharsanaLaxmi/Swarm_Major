@@ -2,17 +2,17 @@
 
 The core finite state machine executing autonomous navigation, RFID rack verification, laser docking, arm manipulation, and priority collision avoidance.
 
-## Component Files
-- \$leaf\
-- \$leaf\
-- \$leaf\
-- \$leaf\
-- \$leaf\
-- \$leaf\
-- \$leaf\
-- \$leaf\
-- \$leaf\
-- \$leaf\
-- \$leaf\
-- \$leaf\
+## Files in this Component
+- \$destName\
+- \$destName\
+- \$destName\
+- \$destName\
+- \$destName\
+- \$destName\
+- \$destName\
+- \$destName\
+- \$destName\
+- \$destName\
+- \$destName\
+- \$destName\
 
