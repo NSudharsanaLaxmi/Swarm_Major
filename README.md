@@ -1,7 +1,7 @@
-# Warehouse Server (warehouse_central_server.py)
+# Warehouse Server (DICT_4X4_50 Boundary Calibration)
 
-Global tracking canvas running OpenCV ArUco localization with live mission dispatch and broadcast.
+Global tracking canvas running OpenCV ArUco localization with dynamic 4-corner homography calibration and boundary enforcement.
 
-## Files in this Component
-- \$destName\
+## Component Files
+- warehouse_central_server.py
 
