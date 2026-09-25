@@ -1,95 +1,95 @@
-# Swarm Warehouse Robotics: Master Run & Verification Guide
+# Autonomous Warehouse Swarm Platform: ArUco Boundary Architecture
 
-This directory contains the complete step-by-step codebase for the autonomous warehouse swarm platform.
-All code has been revised to use your **experimentally validated hardware baseline**:
-- **Native ESP32 PWM:** Left Side on `GPIO 4`, Right Side on `GPIO 5`.
-- **Direction GPIOs (8 pins):** `25, 26, 27, 14, 12, 13, 32, 33`.
-- **STBY Pins:** Hardwired to `3.3V` (HIGH).
-- **I2C Bus:** `GPIO 21` (SDA), `GPIO 22` (SCL) for VL53L0X ToF & OLED.
+This project implements an AI-driven, multi-agent warehouse swarm robotics platform. The vision perception engine uses **`DICT_4X4_50`** ArUco fiducials to dynamically calibrate the workspace frame and enforce hard workcell boundary conditions.
 
 ---
 
-## Directory Structure
+## 1. ArUco Marker Set (`DICT_4X4_50`)
+
+| ID | Name | Role & Function |
+|:---:|:---|:---|
+| **0** | `ROBOT_1` | Moving marker on Robot 1 |
+| **1** | `ROBOT_2` | Moving marker on Robot 2 |
+| **2** | `RACK_1` | Fixed marker on Storage Rack 1 |
+| **3** | `RACK_2` | Fixed marker on Storage Rack 2 |
+| **4** | `RACK_3` | Fixed marker on Storage Rack 3 |
+| **5** | `RACK_4` | Fixed marker on Storage Rack 4 |
+| **6** | `ROBOT_1_START` | Staging location for Robot 1 |
+| **7** | `ROBOT_2_START` | Staging location for Robot 2 |
+| **8** | `DELIVERY_ZONE` | Product drop-off destination |
+| **9** | `BOUNDARY_TL` | Workcell Calibration: Top-Left Corner |
+| **10** | `BOUNDARY_TR` | Workcell Calibration: Top-Right Corner |
+| **11** | `BOUNDARY_BR` | Workcell Calibration: Bottom-Right Corner |
+| **12** | `BOUNDARY_BL` | Workcell Calibration: Bottom-Left Corner |
+
+---
+
+## 2. Perception-to-Control Flow
+
+```
+ArUco Detection (DICT_4X4_50)
+        │
+        ▼
+Boundary Calibration (IDs 9,10,11,12)
+        │
+        ▼
+Workspace Coordinate Frame (Homography Matrix H)
+        │
+        ▼
+Robot & Fixed Landmark Localization (IDs 0-8)
+        │
+        ▼
+Occupancy & Boundary Map (8 cm Safety Buffer)
+        │
+        ▼
+Task Allocation & Path Planning
+        │
+        ▼
+Collision Avoidance & Boundary Override
+        │
+        ▼
+Local ESP32 Motor & Manipulator Control
+```
+
+---
+
+## 3. Directory Structure & Files
 
 ```
 swarm-warehouse/
+├── README.md
 ├── firmware/
-│   ├── step1_motor_diagnostic/
-│   │   └── step1_motor_diagnostic.ino       # Isolated 4WD hardware test
-│   ├── step2_tof_diagnostic/
-│   │   └── step2_tof_diagnostic.ino         # I2C bus scan & VL53L0X distance reading
-│   └── step3_esp32_swarm_agent/
-│       └── step3_esp32_swarm_agent.ino     # Full production robot firmware with active ToF braking
+│   ├── step1_motor_diagnostic/step1_motor_diagnostic.ino
+│   ├── step2_tof_diagnostic/step2_tof_diagnostic.ino
+│   ├── step3_esp32_swarm_agent/step3_esp32_swarm_agent.ino
+│   └── integrated_robot/
+│       ├── Config.h
+│       ├── MotorDriver.h / MotorDriver.cpp
+│       ├── ArmController.h / ArmController.cpp
+│       ├── SensorSuite.h / SensorSuite.cpp
+│       ├── DisplayManager.h / DisplayManager.cpp
+│       ├── SwarmComms.h / SwarmComms.cpp
+│       └── integrated_robot.ino
 └── server/
-    ├── step4_udp_bridge.py                 # ROS 2 /cmd_vel -> UDP port 8888 bridge
-    ├── step5_overhead_vision_tracker.py    # Overhead camera ArUco marker tracker (Port 5005)
-    └── step6_closed_loop_coordinator.py    # Waypoint navigation & collision avoidance coordinator
+    ├── warehouse_central_server.py      # Main ArUco boundary perception & dispatch server
+    ├── standalone_swarm_coordinator.py  # Standalone boundary-aware coordinator
+    ├── step4_udp_bridge.py              # ROS 2 /cmd_vel UDP bridge
+    ├── step5_overhead_vision_tracker.py # DICT_4X4_50 Vision tracker
+    ├── step6_closed_loop_coordinator.py # ROS 2 closed-loop coordinator
+    ├── teleop_keyboard_udp.py           # Standalone keyboard teleop
+    └── uno_q_swarm_agent.py             # Arduino UNO Q Linux MPU UART agent
 ```
 
 ---
 
-## Step-by-Step Execution Sequence
+## 4. Execution Commands
 
-### Step 1: 4WD Motor Diagnostic (Isolated Hardware Check)
-1. Open `firmware/step1_motor_diagnostic/step1_motor_diagnostic.ino` in Arduino IDE.
-2. Select Board: **ESP32 Dev Module**, select your **COM port**.
-3. Prop the robot chassis on a stand so all 4 wheels can spin freely.
-4. Upload and open Serial Monitor at **115200 baud**.
-5. **Expected Observation:**
-   - The robot cycles: Forward (1.5s) -> Stop -> Reverse (1.5s) -> Stop -> Pivot Left (1s) -> Stop.
-   - If any wheel spins the wrong way, swap its two direction pins in code.
-
----
-
-### Step 2: Time-of-Flight (VL53L0X) Diagnostic
-1. Connect sensor: `VIN` -> 3.3V, `GND` -> GND, `SDA` -> `GPIO 21`, `SCL` -> `GPIO 22`.
-2. Open `firmware/step2_tof_diagnostic/step2_tof_diagnostic.ino` in Arduino IDE.
-3. Install the **VL53L0X** library by Pololu from Library Manager.
-4. Upload and open Serial Monitor at **115200 baud**.
-5. **Expected Observation:**
-   - I2C scanner reports `Found active device at: 0x29`.
-   - Continuous distance readings in mm stream to the monitor.
-
----
-
-### Step 3: Production ESP32 Swarm Agent Firmware
-1. Open `firmware/step3_esp32_swarm_agent/step3_esp32_swarm_agent.ino`.
-2. Update `ssid` and `password` with your hotspot credentials.
-3. Upload to the ESP32 and open Serial Monitor.
-4. **Expected Observation:**
-   - `[COMM] WiFi Connected.`
-   - `[COMM] Robot IP: 172.20.10.x` (Take note of this assigned IP address).
-   - `[INFO][TOF] VL53L0X Active`.
-   - `[COMM] UDP Listener active on port 8888`.
-
----
-
-### Step 4: ROS 2 to UDP Velocity Bridge
-Run this on your Linux machine / Docker container running ROS 2 Humble:
+### 1. Launch Warehouse Central Server & Vision Dispatcher
 ```bash
-python3 server/step4_udp_bridge.py --ip <ESP32_IP_FROM_STEP_3> --port 8888
+python server/warehouse_central_server.py --source 0
 ```
-* Every velocity message published to `/cmd_vel` is serialized to `"linear_x,angular_z"` and sent directly to your robot.
 
----
-
-### Step 5: Overhead Computer Vision Tracker
-Run this in a separate terminal:
+### 2. Launch Standalone Swarm Autonomous Coordinator
 ```bash
-# For default webcam:
-python3 server/step5_overhead_vision_tracker.py --source 0
-
-# Or for phone IP webcam stream:
-python3 server/step5_overhead_vision_tracker.py --source "http://172.20.10.2:8080/video"
+python server/standalone_swarm_coordinator.py --robot_ip <ESP32_IP> --bot_id 0 --tx 30.0 --ty 50.0
 ```
-* Tracks ArUco token `ID 0` (Robot 0) and `ID 1` (Robot 1) and broadcasts global metric positions across the local network on UDP port `5005`.
-
----
-
-### Step 6: Closed-Loop Swarm Coordinator & Collision Avoidance
-Run this in another terminal:
-```bash
-python3 server/step6_closed_loop_coordinator.py --bot_id 0 --tx 35.0 --ty 50.0
-```
-* Drives Robot 0 to $(35\text{ cm}, 50\text{ cm})$ autonomously.
-* If Robot 1 approaches within $28\text{ cm}$, the priority logic yields right-of-way and halts to prevent collisions.
