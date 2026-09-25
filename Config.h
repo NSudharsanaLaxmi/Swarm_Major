@@ -4,11 +4,18 @@
 #include <Arduino.h>
 
 // =========================================================================
-// 1. SWARM IDENTITY & NETWORK CONFIGURATION
+// 1. SWARM IDENTITY & ARUCO DICTIONARY (DICT_4X4_50)
 // =========================================================================
-// Set MY_ROBOT_ID to 0 for Robot 1; set to 1 for Robot 2
+// Set MY_ROBOT_ID to 0 for Robot 1 (Marker ID 0); set to 1 for Robot 2 (Marker ID 1)
 #define MY_ROBOT_ID         0
 #define PEER_ROBOT_ID       ((MY_ROBOT_ID == 0) ? 1 : 0)
+
+#define ARUCO_DICT_NAME     "DICT_4X4_50"
+
+// Marker ID Mapping:
+// ID 0: ROBOT_1 | ID 1: ROBOT_2 | ID 2: RACK_1 | ID 3: RACK_2 | ID 4: RACK_3 | ID 5: RACK_4
+// ID 6: ROBOT_1_START | ID 7: ROBOT_2_START | ID 8: DELIVERY_ZONE
+// ID 9: BOUNDARY_TL | ID 10: BOUNDARY_TR | ID 11: BOUNDARY_BR | ID 12: BOUNDARY_BL
 
 #define WIFI_SSID           "YOUR_HOTSPOT_NAME"
 #define WIFI_PASS           "YOUR_HOTSPOT_PASSWORD"
@@ -65,7 +72,7 @@
 // =========================================================================
 // 5. SPI BUS & RC522 RFID READER PINS
 // =========================================================================
-#define RFID_SS_PIN         5     // Shared with Right PWM if SPI used; or GPIO 15
+#define RFID_SS_PIN         5
 #define RFID_RST_PIN        2
 #define RFID_SCK_PIN        18
 #define RFID_MISO_PIN       19
