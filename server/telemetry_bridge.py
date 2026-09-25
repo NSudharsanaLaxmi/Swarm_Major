@@ -48,20 +48,42 @@ class SwarmTelemetryBridge:
         self.ws_port = ws_port
         self.connected_clients = set()
         
-        # State Cache
+        # State Cache (3-Rack Layout with Central Maneuvering Zone)
         self.latest_swarm_state = {
             "timestamp": time.time(),
             "dictionary": "DICT_4X4_50",
             "calibrated": True,
             "arena_size_cm": [120.0, 120.0],
+            "safety_buffer_cm": 8.0,
             "landmarks": {
-                "rack_1": {"x": 25.0, "y": 30.0, "id": 2},
-                "rack_2": {"x": 25.0, "y": 90.0, "id": 3},
-                "rack_3": {"x": 55.0, "y": 30.0, "id": 4},
-                "rack_4": {"x": 55.0, "y": 90.0, "id": 5},
-                "robot_1_start": {"x": 15.0, "y": 60.0, "id": 6},
-                "robot_2_start": {"x": 105.0, "y": 60.0, "id": 7},
-                "delivery_zone": {"x": 95.0, "y": 60.0, "id": 8}
+                "rack_1": {"x": 35.0, "y": 25.0, "id": 2},
+                "rack_2": {"x": 85.0, "y": 25.0, "id": 3},
+                "rack_3": {"x": 60.0, "y": 75.0, "id": 4},
+                "robot_1_start": {"x": 20.0, "y": 102.0, "id": 6},
+                "robot_2_start": {"x": 100.0, "y": 102.0, "id": 7},
+                "delivery_zone": {"x": 60.0, "y": 102.0, "id": 8}
+            },
+            "racks": {
+                "rack_1": {
+                    "id": "rack_1", "marker_id": 2, "name": "RACK_1", "position": [35.0, 25.0], "orientation": 90.0,
+                    "pickup_face": "SOUTH", "approach_pose": [35.0, 45.0, 90.0], "pickup_pose": [35.0, 32.0, 90.0],
+                    "exit_pose": [35.0, 55.0, 90.0], "safe_clearance": 15.0, "status": "AVAILABLE"
+                },
+                "rack_2": {
+                    "id": "rack_2", "marker_id": 3, "name": "RACK_2", "position": [85.0, 25.0], "orientation": 90.0,
+                    "pickup_face": "SOUTH", "approach_pose": [85.0, 45.0, 90.0], "pickup_pose": [85.0, 32.0, 90.0],
+                    "exit_pose": [85.0, 55.0, 90.0], "safe_clearance": 15.0, "status": "AVAILABLE"
+                },
+                "rack_3": {
+                    "id": "rack_3", "marker_id": 4, "name": "RACK_3", "position": [60.0, 75.0], "orientation": -90.0,
+                    "pickup_face": "NORTH", "approach_pose": [60.0, 55.0, -90.0], "pickup_pose": [60.0, 68.0, -90.0],
+                    "exit_pose": [60.0, 45.0, -90.0], "safe_clearance": 15.0, "status": "AVAILABLE"
+                }
+            },
+            "delivery_zone": {
+                "id": "delivery_zone", "marker_id": 8, "name": "DELIVERY_ZONE", "position": [60.0, 102.0],
+                "orientation": -90.0, "approach_pose": [60.0, 88.0, -90.0], "drop_pose": [60.0, 98.0, -90.0],
+                "exit_pose": [60.0, 85.0, -90.0], "safe_clearance": 15.0
             },
             "bots": {}
         }

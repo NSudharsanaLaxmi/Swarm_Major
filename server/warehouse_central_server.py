@@ -12,7 +12,7 @@ Core Architecture:
   3. Metric Transformation: Converts pixel locations into metric centimeters (120x120 cm).
   4. Dynamic Landmark Detection:
      - IDs 0, 1: Mobile Manipulator Robots (Robot 1, Robot 2)
-     - IDs 2, 3, 4, 5: Fixed Storage Racks (Rack 1, 2, 3, 4)
+     - IDs 2, 3, 4: Fixed Storage Racks (Rack 1, 2, 3) in U/Triangular Open Layout
      - IDs 6, 7: Robot Starting Positions (Start 1, Start 2)
      - ID 8: Product Delivery Zone
      - IDs 9, 10, 11, 12: Workcell Perimeter Boundary Calibration Corners
@@ -52,7 +52,7 @@ ID_ROBOT_2       = 1
 ID_RACK_1        = 2
 ID_RACK_2        = 3
 ID_RACK_3        = 4
-ID_RACK_4        = 5
+ID_NAV_CENTER    = 5  # Optional non-rack central waypoint reference
 ID_ROBOT_1_START = 6
 ID_ROBOT_2_START = 7
 ID_DELIVERY_ZONE = 8
@@ -63,9 +63,64 @@ ID_BOUNDARY_BL   = 12
 
 MARKER_NAMES = {
     0: "ROBOT_1", 1: "ROBOT_2",
-    2: "RACK_1", 3: "RACK_2", 4: "RACK_3", 5: "RACK_4",
+    2: "RACK_1", 3: "RACK_2", 4: "RACK_3", 5: "NAV_CENTER",
     6: "ROBOT_1_START", 7: "ROBOT_2_START", 8: "DELIVERY_ZONE",
     9: "BOUNDARY_TL", 10: "BOUNDARY_TR", 11: "BOUNDARY_BR", 12: "BOUNDARY_BL"
+}
+
+# 3-RACK EXPLICIT NAVIGATION METADATA & APPROACH CORRIDORS (Facing Central Maneuvering Zone)
+RACK_NAVIGATION_METADATA = {
+    2: {
+        "id": "rack_1",
+        "marker_id": 2,
+        "name": "RACK_1",
+        "position": (35.0, 25.0),
+        "orientation": 90.0,
+        "pickup_face": "SOUTH",
+        "approach_pose": (35.0, 45.0, 90.0),
+        "pickup_pose": (35.0, 32.0, 90.0),
+        "exit_pose": (35.0, 55.0, 90.0),
+        "safe_clearance": 15.0,
+        "status": "AVAILABLE"
+    },
+    3: {
+        "id": "rack_2",
+        "marker_id": 3,
+        "name": "RACK_2",
+        "position": (85.0, 25.0),
+        "orientation": 90.0,
+        "pickup_face": "SOUTH",
+        "approach_pose": (85.0, 45.0, 90.0),
+        "pickup_pose": (85.0, 32.0, 90.0),
+        "exit_pose": (85.0, 55.0, 90.0),
+        "safe_clearance": 15.0,
+        "status": "AVAILABLE"
+    },
+    4: {
+        "id": "rack_3",
+        "marker_id": 4,
+        "name": "RACK_3",
+        "position": (60.0, 75.0),
+        "orientation": -90.0,
+        "pickup_face": "NORTH",
+        "approach_pose": (60.0, 55.0, -90.0),
+        "pickup_pose": (60.0, 68.0, -90.0),
+        "exit_pose": (60.0, 45.0, -90.0),
+        "safe_clearance": 15.0,
+        "status": "AVAILABLE"
+    }
+}
+
+DELIVERY_NAVIGATION_METADATA = {
+    "id": "delivery_zone",
+    "marker_id": 8,
+    "name": "DELIVERY_ZONE",
+    "position": (60.0, 102.0),
+    "orientation": -90.0,
+    "approach_pose": (60.0, 88.0, -90.0),
+    "drop_pose": (60.0, 98.0, -90.0),
+    "exit_pose": (60.0, 85.0, -90.0),
+    "safe_clearance": 15.0
 }
 
 class WorkcellVisionEngine:
@@ -93,15 +148,14 @@ class WorkcellVisionEngine:
         self.is_calibrated = False
         self.last_calibration_time = 0
 
-        # Default fallback landmarks if uncalibrated (in cm)
+        # Default fallback landmarks if uncalibrated (in cm) - 3-Rack Open Layout
         self.landmarks = {
-            "rack_1": {"x": 25.0, "y": 30.0, "id": 2},
-            "rack_2": {"x": 25.0, "y": 90.0, "id": 3},
-            "rack_3": {"x": 55.0, "y": 30.0, "id": 4},
-            "rack_4": {"x": 55.0, "y": 90.0, "id": 5},
-            "robot_1_start": {"x": 15.0, "y": 60.0, "id": 6},
-            "robot_2_start": {"x": 105.0, "y": 60.0, "id": 7},
-            "delivery_zone": {"x": 95.0, "y": 60.0, "id": 8}
+            "rack_1": {"x": 35.0, "y": 25.0, "id": 2},
+            "rack_2": {"x": 85.0, "y": 25.0, "id": 3},
+            "rack_3": {"x": 60.0, "y": 75.0, "id": 4},
+            "robot_1_start": {"x": 20.0, "y": 102.0, "id": 6},
+            "robot_2_start": {"x": 100.0, "y": 102.0, "id": 7},
+            "delivery_zone": {"x": 60.0, "y": 102.0, "id": 8}
         }
 
     def compute_boundary_homography(self, detected_markers):
@@ -205,12 +259,21 @@ class WorkcellVisionEngine:
                 cv2.line(metric_canvas, (gx, 0), (gx, CANVAS_SIZE), (35, 35, 35), 1)
                 cv2.line(metric_canvas, (0, gy), (CANVAS_SIZE, gy), (35, 35, 35), 1)
 
-            # Draw Safety Boundary Buffer Polygon
+            # Draw Central Open Maneuvering / Traffic Zone (Unobstructed 60x27 cm Area)
+            cmz_x1 = int(25.0 * SCALE_X)
+            cmz_y1 = int(38.0 * SCALE_Y)
+            cmz_x2 = int(95.0 * SCALE_X)
+            cmz_y2 = int(65.0 * SCALE_Y)
+            cv2.rectangle(metric_canvas, (cmz_x1, cmz_y1), (cmz_x2, cmz_y2), (45, 55, 72), 1)
+            cv2.putText(metric_canvas, "CENTRAL MANEUVERING ZONE", (cmz_x1 + 35, int((cmz_y1 + cmz_y2) / 2)),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.38, (120, 140, 160), 1)
+
+            # Draw Safety Boundary Buffer Polygon (8 cm inner margin)
             buf_px = int(BOUNDARY_BUFFER_CM * SCALE_X)
             cv2.rectangle(metric_canvas, (0, 0), (CANVAS_SIZE, CANVAS_SIZE), (0, 255, 255), 2)
             cv2.rectangle(metric_canvas, (buf_px, buf_px), (CANVAS_SIZE - buf_px, CANVAS_SIZE - buf_px), (0, 165, 255), 1)
-            cv2.putText(metric_canvas, "WORKCELL BOUNDARY (DICT_4X4_50)", (15, 25),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 255), 2)
+            cv2.putText(metric_canvas, "WORKCELL BOUNDARY (DICT_4X4_50) - 8cm SAFETY BUFFER", (15, 25),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.50, (0, 255, 255), 1)
 
             # Build Swarm State Telemetry
             swarm_state = {
@@ -218,7 +281,10 @@ class WorkcellVisionEngine:
                 "dictionary": "DICT_4X4_50",
                 "calibrated": self.is_calibrated,
                 "arena_size_cm": [ARENA_WIDTH_CM, ARENA_HEIGHT_CM],
+                "safety_buffer_cm": BOUNDARY_BUFFER_CM,
                 "landmarks": {},
+                "racks": RACK_NAVIGATION_METADATA,
+                "delivery_zone": DELIVERY_NAVIGATION_METADATA,
                 "bots": {}
             }
 
@@ -250,12 +316,27 @@ class WorkcellVisionEngine:
                     cv2.putText(metric_canvas, m_name, (m_px - 25, m_py - 12),
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.35, (0, 255, 255), 1)
 
-                # Category: Racks (IDs 2-5)
-                elif 2 <= m_id <= 5:
-                    cv2.rectangle(metric_canvas, (m_px - 25, m_py - 25), (m_px + 25, m_py + 25), (0, 140, 255), 2)
-                    cv2.putText(metric_canvas, f"RACK {m_id-1}", (m_px - 22, m_py - 30),
+                # Category: Storage Racks (IDs 2-4: RACK_1, RACK_2, RACK_3)
+                elif 2 <= m_id <= 4:
+                    rack_num = m_id - 1
+                    cv2.rectangle(metric_canvas, (m_px - 24, m_py - 24), (m_px + 24, m_py + 24), (0, 140, 255), 2)
+                    cv2.putText(metric_canvas, f"RACK {rack_num}", (m_px - 22, m_py - 28),
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 140, 255), 1)
-                    swarm_state["landmarks"][f"rack_{m_id-1}"] = {"x": x_cm, "y": y_cm, "id": m_id}
+                    
+                    # Draw Approach Indicator pointing toward Central Zone
+                    if m_id in (2, 3): # Top Racks face South (+Y)
+                        cv2.arrowedLine(metric_canvas, (m_px, m_py + 24), (m_px, m_py + 44), (0, 200, 255), 1)
+                    elif m_id == 4:    # Bottom Rack faces North (-Y)
+                        cv2.arrowedLine(metric_canvas, (m_px, m_py - 24), (m_px, m_py - 44), (0, 200, 255), 1)
+
+                    swarm_state["landmarks"][f"rack_{rack_num}"] = {"x": x_cm, "y": y_cm, "id": m_id}
+
+                # Category: Optional NAV_CENTER (ID 5)
+                elif m_id == ID_NAV_CENTER:
+                    cv2.circle(metric_canvas, (m_px, m_py), 8, (200, 200, 100), 1)
+                    cv2.putText(metric_canvas, "NAV_CTR", (m_px - 20, m_py - 12),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.32, (200, 200, 100), 1)
+                    swarm_state["landmarks"]["nav_center"] = {"x": x_cm, "y": y_cm, "id": m_id}
 
                 # Category: Delivery Zone (ID 8)
                 elif m_id == ID_DELIVERY_ZONE:

@@ -30,18 +30,34 @@ ARRIVAL_RADIUS_CM = 8.0
 CENTER_X_CM       = 60.0
 CENTER_Y_CM       = 60.0
 
+# 3-Rack Structured Approach & Pickup Poses
+RACK_POSES = {
+    1: {"name": "RACK_1", "approach": (35.0, 45.0), "pickup": (35.0, 32.0), "exit": (35.0, 55.0)},
+    2: {"name": "RACK_2", "approach": (85.0, 45.0), "pickup": (85.0, 32.0), "exit": (85.0, 55.0)},
+    3: {"name": "RACK_3", "approach": (60.0, 55.0), "pickup": (60.0, 68.0), "exit": (60.0, 45.0)},
+}
+DELIVERY_POSE = {"name": "DELIVERY_ZONE", "approach": (60.0, 88.0), "drop": (60.0, 98.0), "exit": (60.0, 85.0)}
+
 def main():
     parser = argparse.ArgumentParser(description="Standalone Swarm Autonomous Boundary Coordinator")
     parser.add_argument("--robot_ip", type=str, default="172.20.10.3", help="Target ESP32 IP address")
     parser.add_argument("--robot_port", type=int, default=8888, help="ESP32 UDP velocity port")
     parser.add_argument("--vision_port", type=int, default=5005, help="Vision UDP listener port")
     parser.add_argument("--bot_id", type=int, default=0, help="This robot ID (0 or 1)")
-    parser.add_argument("--tx", type=float, default=30.0, help="Goal X in cm")
-    parser.add_argument("--ty", type=float, default=50.0, help="Goal Y in cm")
+    parser.add_argument("--rack", type=int, default=0, help="Target Rack (1, 2, or 3) for approach corridor")
+    parser.add_argument("--tx", type=float, default=35.0, help="Goal X in cm")
+    parser.add_argument("--ty", type=float, default=45.0, help="Goal Y in cm")
     args = parser.parse_args()
 
     my_id = args.bot_id
     peer_id = 1 if my_id == 0 else 0
+
+    if args.rack in RACK_POSES:
+        target_x, target_y = RACK_POSES[args.rack]["approach"]
+        rack_label = f"[{RACK_POSES[args.rack]['name']} Approach]"
+    else:
+        target_x, target_y = args.tx, args.ty
+        rack_label = "[Custom Waypoint]"
 
     rx_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     rx_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -53,7 +69,7 @@ def main():
     print("==========================================================")
     print(f"   STANDALONE BOUNDARY-AWARE COORDINATOR: BOT {my_id}")
     print(f"   ArUco Dictionary   : DICT_4X4_50")
-    print(f"   Destination Target : ({args.tx}, {args.ty}) cm")
+    print(f"   Destination Target : ({target_x}, {target_y}) cm {rack_label}")
     print(f"   Robot Velocity UDP : {args.robot_ip}:{args.robot_port}")
     print(f"   Vision Listener    : Port {args.vision_port}")
     print("==========================================================\n")
@@ -118,12 +134,12 @@ def main():
 
                     if not collision_risk:
                         # --- 3. TARGET NAVIGATION VECTOR ---
-                        dx = args.tx - x
-                        dy = args.ty - y
+                        dx = target_x - x
+                        dy = target_y - y
                         dist_to_goal = math.sqrt(dx**2 + dy**2)
 
                         if dist_to_goal <= ARRIVAL_RADIUS_CM:
-                            print(f"\r[SUCCESS] Arrived at destination ({args.tx}, {args.ty})! Stopping.     ", end="")
+                            print(f"\r[SUCCESS] Arrived at destination ({target_x}, {target_y})! Stopping.     ", end="")
                             send_vel(0.0, 0.0)
                         else:
                             target_heading = math.degrees(math.atan2(dy, dx))

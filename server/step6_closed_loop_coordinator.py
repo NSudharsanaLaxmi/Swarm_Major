@@ -25,13 +25,27 @@ ARRIVAL_RADIUS_CM = 8.0
 CENTER_X_CM       = 60.0
 CENTER_Y_CM       = 60.0
 
+# 3-Rack Structured Approach & Pickup Poses
+RACK_POSES = {
+    1: {"name": "RACK_1", "approach": (35.0, 45.0), "pickup": (35.0, 32.0), "exit": (35.0, 55.0)},
+    2: {"name": "RACK_2", "approach": (85.0, 45.0), "pickup": (85.0, 32.0), "exit": (85.0, 55.0)},
+    3: {"name": "RACK_3", "approach": (60.0, 55.0), "pickup": (60.0, 68.0), "exit": (60.0, 45.0)},
+}
+DELIVERY_POSE = {"name": "DELIVERY_ZONE", "approach": (60.0, 88.0), "drop": (60.0, 98.0), "exit": (60.0, 85.0)}
+
 class ClosedLoopSwarmCoordinator(Node):
-    def __init__(self, my_id: int, target_x: float, target_y: float, listen_port: int):
+    def __init__(self, my_id: int, target_x: float, target_y: float, listen_port: int, rack_id: int = 0):
         super().__init__(f'swarm_coordinator_bot_{my_id}')
         self.my_id = my_id
         self.peer_id = 1 if my_id == 0 else 0
-        self.target_x = target_x
-        self.target_y = target_y
+        
+        if rack_id in RACK_POSES:
+            # Default to approach pose for designated rack
+            self.target_x, self.target_y = RACK_POSES[rack_id]["approach"]
+            self.get_logger().info(f"[SWARM] Initialized rack mission: {RACK_POSES[rack_id]['name']} Approach Pose ({self.target_x}, {self.target_y})")
+        else:
+            self.target_x = target_x
+            self.target_y = target_y
 
         self.cmd_pub = self.create_publisher(Twist, '/cmd_vel', 10)
 
@@ -129,7 +143,8 @@ class ClosedLoopSwarmCoordinator(Node):
 def main(args=None):
     parser = argparse.ArgumentParser(description="Swarm Autonomous Closed-Loop Coordinator")
     parser.add_argument("--bot_id", type=int, default=0, help="This robot ID (0 or 1)")
-    parser.add_argument("--tx", type=float, default=25.0, help="Target X coordinate (cm)")
+    parser.add_argument("--rack", type=int, default=0, help="Target Rack (1, 2, or 3) for approach corridor")
+    parser.add_argument("--tx", type=float, default=35.0, help="Target X coordinate (cm)")
     parser.add_argument("--ty", type=float, default=45.0, help="Target Y coordinate (cm)")
     parser.add_argument("--port", type=int, default=5005, help="Vision UDP listener port")
     cli_args, remaining_args = parser.parse_known_args(args=sys.argv[1:])
@@ -139,7 +154,8 @@ def main(args=None):
         my_id=cli_args.bot_id,
         target_x=cli_args.tx,
         target_y=cli_args.ty,
-        listen_port=cli_args.port
+        listen_port=cli_args.port,
+        rack_id=cli_args.rack
     )
 
     try:
