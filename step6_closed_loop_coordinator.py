@@ -1,12 +1,10 @@
 #!/usr/bin/env python3
 """
 ======================================================================================
-STEP 6: CLOSED-LOOP SWARM COORDINATOR & AUTONOMOUS COLLISION AVOIDANCE
+STEP 6: ROS 2 CLOSED-LOOP SWARM COORDINATOR WITH BOUNDARY OVERRIDE (DICT_4X4_50)
 ======================================================================================
-Purpose: Consumes global localization telemetry from Step 5, calculates goal heading
-         and distance vectors, enforces dynamic decentralized collision avoidance
-         between Robot 0 and Robot 1, and publishes velocity commands to '/cmd_vel'
-         (which Step 4 forwards over UDP to the physical ESP32).
+Purpose: Consumes DICT_4X4_50 ArUco tracking packets from Step 5, enforces inter-robot
+         collision avoidance and workcell boundary safety, and publishes /cmd_vel.
 
 Execution:
   python3 step6_closed_loop_coordinator.py --bot_id 0 --tx 30.0 --ty 45.0
@@ -22,8 +20,10 @@ import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Twist
 
-SAFE_DISTANCE_CM   = 28.0  # Collision avoidance clearance threshold
-ARRIVAL_RADIUS_CM  = 8.0   # Goal threshold
+SAFE_DISTANCE_CM  = 28.0
+ARRIVAL_RADIUS_CM = 8.0
+CENTER_X_CM       = 60.0
+CENTER_Y_CM       = 60.0
 
 class ClosedLoopSwarmCoordinator(Node):
     def __init__(self, my_id: int, target_x: float, target_y: float, listen_port: int):
@@ -35,17 +35,15 @@ class ClosedLoopSwarmCoordinator(Node):
 
         self.cmd_pub = self.create_publisher(Twist, '/cmd_vel', 10)
 
-        # Setup non-blocking UDP socket to listen for vision tracker broadcast
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.sock.bind(("", listen_port))
         self.sock.setblocking(False)
 
-        self.timer = self.create_timer(0.05, self.control_loop) # 20 Hz control loop
-        self.get_logger().info(f"[SWARM] Bot {self.my_id} Coordinator Online. Target: ({self.target_x}, {self.target_y})")
+        self.timer = self.create_timer(0.05, self.control_loop)
+        self.get_logger().info(f"[SWARM] Bot {self.my_id} Coordinator (DICT_4X4_50) Online. Target: ({self.target_x}, {self.target_y})")
 
     def control_loop(self):
-        # 1. Drain latest tracking packet
         latest_packet = None
         while True:
             try:
@@ -68,56 +66,64 @@ class ClosedLoopSwarmCoordinator(Node):
         peer_key = f"id{self.peer_id}"
 
         if my_key not in bots:
-            return # My marker is currently occluded or not detected
+            return
 
         my_data = bots[my_key]
         x, y, theta = my_data["x"], my_data["y"], my_data["ang"]
+        out_of_bounds = my_data.get("out_of_bounds", False)
 
-        # 2. Decentralized Collision Avoidance Check
+        # 1. Hard Workcell Boundary Override
+        if out_of_bounds:
+            self.get_logger().warn("[SAFETY] Workcell Boundary Breach! Adjusting course towards center.")
+            dx_c = CENTER_X_CM - x
+            dy_c = CENTER_Y_CM - y
+            target_heading_c = math.degrees(math.atan2(dy_c, dx_c))
+            heading_err_c = target_heading_c - theta
+            while heading_err_c > 180: heading_err_c -= 360
+            while heading_err_c < -180: heading_err_c += 360
+
+            if abs(heading_err_c) > 30:
+                self.publish_vel(0.0, 0.7 if heading_err_c > 0 else -0.7)
+            else:
+                self.publish_vel(0.35, 0.0)
+            return
+
+        # 2. Inter-Robot Collision Avoidance
         if peer_key in bots:
             peer_data = bots[peer_key]
-            d_peer = math.sqrt((x - peer_data["x"])**2 + (y - peer_data["y"])**2)
-
-            if d_peer < SAFE_DISTANCE_CM:
-                # Priority Protocol: Bot 0 has right of way; Bot 1 yields
+            dist_to_peer = math.sqrt((x - peer_data["x"])**2 + (y - peer_data["y"])**2)
+            if dist_to_peer < SAFE_DISTANCE_CM:
                 if self.my_id > self.peer_id:
-                    self.get_logger().warn(f"[SAFETY] Peer Bot {self.peer_id} within {d_peer:.1f} cm! Yielding right-of-way.")
-                    self.publish_twist(0.0, 0.0)
+                    self.get_logger().warn(f"[SAFETY] Peer Bot {self.peer_id} within {dist_to_peer:.1f} cm! Yielding.")
+                    self.publish_vel(0.0, 0.0)
                     return
 
         # 3. Target Navigation Vector
         dx = self.target_x - x
         dy = self.target_y - y
-        distance_to_goal = math.sqrt(dx**2 + dy**2)
+        dist_to_goal = math.sqrt(dx**2 + dy**2)
 
-        if distance_to_goal <= ARRIVAL_RADIUS_CM:
-            self.get_logger().info(f"[TASK] Arrived at Target ({self.target_x}, {self.target_y})!")
-            self.publish_twist(0.0, 0.0)
+        if dist_to_goal <= ARRIVAL_RADIUS_CM:
+            self.get_logger().info("[TASK] Target Arrived!")
+            self.publish_vel(0.0, 0.0)
             return
 
-        # 4. Heading error calculation
         target_heading = math.degrees(math.atan2(dy, dx))
         heading_error = target_heading - theta
 
-        # Bounding heading error between -180 and 180 degrees
-        while heading_error > 180.0:  heading_error -= 360.0
-        while heading_error < -180.0: heading_error += 360.0
+        while heading_error > 180: heading_error -= 360
+        while heading_error < -180: heading_error += 360
 
-        # 5. Differential Kinematics Dispatch
         if abs(heading_error) > 25.0:
-            # Pivot in-place towards target
-            turn_rate = 0.8 if heading_error > 0 else -0.8
-            self.publish_twist(0.0, turn_rate)
+            turn_speed = 0.7 if heading_error > 0 else -0.7
+            self.publish_vel(0.0, turn_speed)
         else:
-            # Drive forward with proportional heading trimming
-            forward_speed = 0.45
-            steering_trim = heading_error * 0.015
-            self.publish_twist(forward_speed, steering_trim)
+            self.publish_vel(0.4, heading_error * 0.02)
 
-    def publish_twist(self, linear_x: float, angular_z: float):
+    def publish_vel(self, lin, ang):
         t = Twist()
-        t.linear.x = float(linear_x)
-        t.angular.z = float(angular_z)
+        t.linear.x = float(lin)
+        t.angular.z = float(ang)
         self.cmd_pub.publish(t)
 
 def main(args=None):
@@ -140,9 +146,8 @@ def main(args=None):
         rclpy.spin(node)
     except KeyboardInterrupt:
         pass
-    finally:
-        node.destroy_node()
-        rclpy.shutdown()
+    node.destroy_node()
+    rclpy.shutdown()
 
 if __name__ == '__main__':
     main()
