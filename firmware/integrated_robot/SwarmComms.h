@@ -7,11 +7,42 @@
 #include <ArduinoJson.h>
 #include "Config.h"
 
-struct SwarmPose {
+struct GlobalPose {
   float x;
   float y;
-  float ang;
+  float theta;
   bool valid;
+  unsigned long lastUpdateMs;
+};
+
+enum CommandType {
+  CMD_NONE,
+  CMD_VELOCITY,
+  CMD_NAV_GOAL,
+  CMD_ARM_POSE,
+  CMD_ARM_NAMED_POSE,
+  CMD_STOP,
+  CMD_EMERGENCY_STOP,
+  CMD_RESUME,
+  CMD_PICK,
+  CMD_DROP,
+  CMD_SET_POSE
+};
+
+struct IncomingCommand {
+  CommandType type;
+  float linear;
+  float angular;
+  float goalX;
+  float goalY;
+  float goalTheta;
+  int armBase;
+  int armShoulder;
+  int armElbow;
+  int armJoint4;
+  int armJoint5;
+  ArmPoseType namedPose;
+  unsigned long timestamp;
 };
 
 class SwarmComms {
@@ -20,28 +51,36 @@ public:
   void init();
   void update();
 
-  bool isConnected();
-  SwarmPose getMyPose();
-  SwarmPose getPeerPose();
-  bool isPeerNear(float thresholdCm = SWARM_SAFE_DIST_CM);
-  bool hasVelocityOverride(float &outLinear, float &outAngular);
-  unsigned long getLastHeardTime();
+  bool isConnected() const;
+  bool isCommandTimedOut() const;
+  unsigned long getLastPacketAgeMs() const;
+
+  GlobalPose getMyGlobalPose() const { return myGlobalPose; }
+  GlobalPose getPeerGlobalPose() const { return peerGlobalPose; }
+  bool isPeerNear(float thresholdCm = SWARM_SAFE_DIST_CM) const;
+
+  bool hasNewCommand(IncomingCommand& outCmd);
+  void sendTelemetry(const String& jsonPayload);
 
 private:
   WiFiUDP cmdUdp;
   WiFiUDP swarmUdp;
 
-  SwarmPose myPose;
-  SwarmPose peerPose;
+  GlobalPose myGlobalPose;
+  GlobalPose peerGlobalPose;
 
-  float cmdLinear;
-  float cmdAngular;
-  bool newCmdAvailable;
-  unsigned long lastCmdTime;
+  IncomingCommand activeCommand;
+  bool newCommandPending;
+
+  unsigned long lastCommandPacketTime;
   unsigned long lastSwarmPacketTime;
 
-  void parseVelocityPacket();
-  void parseSwarmBroadcast();
+  char rxBuffer[512];
+
+  void processCommandPacket();
+  void processSwarmBroadcast();
+  bool parseJsonCommand(const char* jsonStr);
+  bool parseLegacyVelocity(const char* rawStr);
 };
 
 #endif // SWARM_COMMS_H

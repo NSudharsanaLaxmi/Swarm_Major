@@ -3,20 +3,28 @@
 MotorDriver::MotorDriver() : targetLeftPwm(0), targetRightPwm(0), currentLeftPwm(0), currentRightPwm(0) {}
 
 void MotorDriver::init() {
+  // Configure native ESP32 PWM pins
   pinMode(PIN_PWM_LEFT, OUTPUT);
   pinMode(PIN_PWM_RIGHT, OUTPUT);
 
-  pinMode(PIN_F_AIN1, OUTPUT); pinMode(PIN_F_AIN2, OUTPUT);
-  pinMode(PIN_F_BIN1, OUTPUT); pinMode(PIN_F_BIN2, OUTPUT);
-  pinMode(PIN_R_AIN1, OUTPUT); pinMode(PIN_R_AIN2, OUTPUT);
-  pinMode(PIN_R_BIN1, OUTPUT); pinMode(PIN_R_BIN2, OUTPUT);
+  // Configure Front Driver direction pins (TB6612 #1)
+  pinMode(PIN_F_AIN1, OUTPUT);
+  pinMode(PIN_F_AIN2, OUTPUT);
+  pinMode(PIN_F_BIN1, OUTPUT);
+  pinMode(PIN_F_BIN2, OUTPUT);
+
+  // Configure Rear Driver direction pins (TB6612 #2)
+  pinMode(PIN_R_AIN1, OUTPUT);
+  pinMode(PIN_R_AIN2, OUTPUT);
+  pinMode(PIN_R_BIN1, OUTPUT);
+  pinMode(PIN_R_BIN2, OUTPUT);
 
   stop();
-  Serial.println(F("[MOTOR] 4WD Locomotion Subsystem Initialized."));
+  Serial.println(F("[MOTOR_DRIVER] 4WD TB6612 Subsystem Initialized (Pins D4/D5 PWM, D25/26/27/14 & D12/13/32/33 Dirs)."));
 }
 
 void MotorDriver::applyMotorPolarity(int left, int right) {
-  // Left Side Direction Control (Front & Rear)
+  // --- LEFT SIDE MOTORS (Front Left & Rear Left) ---
   if (left > 0) {
     digitalWrite(PIN_F_AIN1, HIGH); digitalWrite(PIN_F_AIN2, LOW);
     digitalWrite(PIN_R_AIN1, HIGH); digitalWrite(PIN_R_AIN2, LOW);
@@ -28,7 +36,7 @@ void MotorDriver::applyMotorPolarity(int left, int right) {
     digitalWrite(PIN_R_AIN1, LOW); digitalWrite(PIN_R_AIN2, LOW);
   }
 
-  // Right Side Direction Control (Front & Rear)
+  // --- RIGHT SIDE MOTORS (Front Right & Rear Right) ---
   if (right > 0) {
     digitalWrite(PIN_F_BIN1, HIGH); digitalWrite(PIN_F_BIN2, LOW);
     digitalWrite(PIN_R_BIN1, HIGH); digitalWrite(PIN_R_BIN2, LOW);
@@ -40,30 +48,34 @@ void MotorDriver::applyMotorPolarity(int left, int right) {
     digitalWrite(PIN_R_BIN1, LOW); digitalWrite(PIN_R_BIN2, LOW);
   }
 
-  // Output 8-bit PWM
-  analogWrite(PIN_PWM_LEFT, constrain(abs(left), 0, 255));
-  analogWrite(PIN_PWM_RIGHT, constrain(abs(right), 0, 255));
-}
+  // Output 8-bit native PWM directly from ESP32 pins 4 and 5
+  int pwmLeftVal  = constrain(abs(left), 0, 255);
+  int pwmRightVal = constrain(abs(right), 0, 255);
 
-void MotorDriver::drive(float linear, float angular) {
-  float left_speed  = linear - angular;
-  float right_speed = linear + angular;
+  analogWrite(PIN_PWM_LEFT, pwmLeftVal);
+  analogWrite(PIN_PWM_RIGHT, pwmRightVal);
 
-  left_speed  = constrain(left_speed, -1.0f, 1.0f);
-  right_speed = constrain(right_speed, -1.0f, 1.0f);
-
-  int left_pwm  = (abs(left_speed) > 0.05f) ? (int)(left_speed * 255.0f) : 0;
-  int right_pwm = (abs(right_speed) > 0.05f) ? (int)(right_speed * 255.0f) : 0;
-
-  setRawMotors(left_pwm, right_pwm);
+  currentLeftPwm  = left;
+  currentRightPwm = right;
 }
 
 void MotorDriver::setRawMotors(int leftPwm, int rightPwm) {
-  targetLeftPwm = leftPwm;
-  targetRightPwm = rightPwm;
+  targetLeftPwm  = constrain(leftPwm, -255, 255);
+  targetRightPwm = constrain(rightPwm, -255, 255);
   applyMotorPolarity(targetLeftPwm, targetRightPwm);
 }
 
 void MotorDriver::stop() {
-  setRawMotors(0, 0);
+  digitalWrite(PIN_F_AIN1, LOW); digitalWrite(PIN_F_AIN2, LOW);
+  digitalWrite(PIN_R_AIN1, LOW); digitalWrite(PIN_R_AIN2, LOW);
+  digitalWrite(PIN_F_BIN1, LOW); digitalWrite(PIN_F_BIN2, LOW);
+  digitalWrite(PIN_R_BIN1, LOW); digitalWrite(PIN_R_BIN2, LOW);
+
+  analogWrite(PIN_PWM_LEFT, 0);
+  analogWrite(PIN_PWM_RIGHT, 0);
+
+  targetLeftPwm   = 0;
+  targetRightPwm  = 0;
+  currentLeftPwm  = 0;
+  currentRightPwm = 0;
 }

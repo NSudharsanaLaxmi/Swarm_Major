@@ -1,90 +1,183 @@
 #include "ArmController.h"
 
-ArmController::ArmController() : pca(ADDR_PCA9685), isOnline(false) {
-  for (int i = 0; i < 5; i++) currentAngles[i] = 90;
+ArmController::ArmController()
+  : pca(Adafruit_PWMServoDriver(ADDR_PCA9685)),
+    driverOnline(false),
+    moving(false),
+    lastStepTime(0),
+    moveStartTime(0),
+    totalMoveDurationMs(800),
+    currentNamedPose(POSE_TYPE_HOME) {
+  for (int i = 0; i < NUM_ARM_JOINTS; i++) {
+    jointConfigs[i] = DEFAULT_JOINT_CONFIGS[i];
+    currentAngles[i] = (float)DEFAULT_JOINT_CONFIGS[i].homeAngle;
+    targetAngles[i]  = currentAngles[i];
+    stepIncrements[i] = 0.0f;
+  }
 }
 
-int ArmController::angleToPulse(int angle) {
-  angle = constrain(angle, 0, 180);
-  return map(angle, 0, 180, SERVO_PULSE_MIN, SERVO_PULSE_MAX);
-}
-
-bool ArmController::init() {
+bool ArmController::begin() {
   Wire.beginTransmission(ADDR_PCA9685);
-  if (Wire.endTransmission() != 0) {
-    Serial.println(F("[ERROR][ARM] PCA9685 not detected at 0x40!"));
-    isOnline = false;
+  byte err = Wire.endTransmission();
+
+  if (err != 0) {
+    Serial.printf("[ARM_CONTROLLER] ERROR: PCA9685 not detected at I2C address 0x%02X!\n", ADDR_PCA9685);
+    driverOnline = false;
     return false;
   }
 
   pca.begin();
-  pca.setPWMFreq(50); // 50 Hz for analog/digital hobby servos (MG90S)
-  isOnline = true;
+  pca.setPWMFreq(PCA9685_PWM_FREQ); // 50 Hz for MG996R servos
+  driverOnline = true;
 
-  setPose(POSE_REST, 400);
-  openGripper();
-  Serial.println(F("[ARM] Manipulator initialized to REST pose."));
+  // Initialize all joints to home position
+  for (int i = 0; i < NUM_ARM_JOINTS; i++) {
+    currentAngles[i] = (float)jointConfigs[i].homeAngle;
+    targetAngles[i]  = currentAngles[i];
+    applyHardwarePwm(i, currentAngles[i]);
+  }
+
+  Serial.println(F("[ARM_CONTROLLER] PCA9685 5-DOF MG996R Arm Controller Online (CH0-CH4). Initialized to HOME."));
   return true;
 }
 
-void ArmController::setServoAngle(uint8_t channel, int angle) {
-  if (!isOnline) return;
-  pca.setPWM(channel, 0, angleToPulse(angle));
-  if (channel < 5) currentAngles[channel] = angle;
+void ArmController::setJointConfig(uint8_t jointIndex, const JointConfig& config) {
+  if (jointIndex < NUM_ARM_JOINTS) {
+    jointConfigs[jointIndex] = config;
+  }
+}
+
+JointConfig ArmController::getJointConfig(uint8_t jointIndex) const {
+  if (jointIndex < NUM_ARM_JOINTS) {
+    return jointConfigs[jointIndex];
+  }
+  return DEFAULT_JOINT_CONFIGS[0];
+}
+
+int ArmController::angleToPulse(uint8_t jointIndex, float angle) {
+  // Apply calibration offset & direction
+  float calibratedAngle = (angle * jointConfigs[jointIndex].direction) + jointConfigs[jointIndex].offset;
+  calibratedAngle = constrain(calibratedAngle, 0.0f, 180.0f);
+
+  // Map 0-180 degrees to servo pulse width (typically 150-600 on PCA9685 12-bit scale)
+  int pulse = map((long)calibratedAngle, 0, 180, SERVO_PULSE_MIN, SERVO_PULSE_MAX);
+  return pulse;
+}
+
+void ArmController::applyHardwarePwm(uint8_t jointIndex, float angle) {
+  if (!driverOnline || jointIndex >= NUM_ARM_JOINTS) return;
+  int pulse = angleToPulse(jointIndex, angle);
+  pca.setPWM(jointConfigs[jointIndex].channel, 0, pulse);
+}
+
+void ArmController::setJointAngle(uint8_t jointIndex, int targetAngle) {
+  if (jointIndex >= NUM_ARM_JOINTS) return;
+
+  // Clamp to software limit
+  int clamped = constrain(targetAngle, jointConfigs[jointIndex].minAngle, jointConfigs[jointIndex].maxAngle);
+  targetAngles[jointIndex] = (float)clamped;
+  currentNamedPose = POSE_TYPE_CUSTOM;
+
+  // Calculate increment for non-blocking move
+  float delta = targetAngles[jointIndex] - currentAngles[jointIndex];
+  stepIncrements[jointIndex] = delta / 20.0f; // 20 steps
+  moving = true;
+  lastStepTime = millis();
+}
+
+void ArmController::movePose(int base, int shoulder, int elbow, int joint4, int joint5, int durationMs) {
+  int targets[NUM_ARM_JOINTS] = { base, shoulder, elbow, joint4, joint5 };
+
+  for (int i = 0; i < NUM_ARM_JOINTS; i++) {
+    int clamped = constrain(targets[i], jointConfigs[i].minAngle, jointConfigs[i].maxAngle);
+    targetAngles[i] = (float)clamped;
+  }
+
+  totalMoveDurationMs = max(100, durationMs);
+  moveStartTime = millis();
+  lastStepTime = millis();
+
+  int numSteps = max(5, totalMoveDurationMs / 20); // 20ms update period (~50 Hz)
+  for (int i = 0; i < NUM_ARM_JOINTS; i++) {
+    stepIncrements[i] = (targetAngles[i] - currentAngles[i]) / (float)numSteps;
+  }
+
+  moving = true;
+  currentNamedPose = POSE_TYPE_CUSTOM;
+}
+
+void ArmController::movePose(const ArmPose& pose, int durationMs) {
+  movePose(pose.base, pose.shoulder, pose.elbow, pose.joint4, pose.joint5, durationMs);
+}
+
+void ArmController::setNamedPose(ArmPoseType poseType, int durationMs) {
+  if (poseType >= 0 && poseType < 7) {
+    currentNamedPose = poseType;
+    movePose(DEFAULT_ARM_POSES[poseType], durationMs);
+  }
+}
+
+void ArmController::home(int durationMs) {
+  setNamedPose(POSE_TYPE_HOME, durationMs);
+}
+
+void ArmController::stop() {
+  for (int i = 0; i < NUM_ARM_JOINTS; i++) {
+    targetAngles[i] = currentAngles[i];
+    stepIncrements[i] = 0.0f;
+  }
+  moving = false;
 }
 
 void ArmController::openGripper() {
-  setServoAngle(SERVO_CH_GRIPPER, GRIPPER_OPEN_DEG);
+  setJointAngle(SERVO_JOINT5, jointConfigs[SERVO_JOINT5].maxAngle); // 180°
 }
 
 void ArmController::closeGripper() {
-  setServoAngle(SERVO_CH_GRIPPER, GRIPPER_CLOSED_DEG);
+  setJointAngle(SERVO_JOINT5, jointConfigs[SERVO_JOINT5].minAngle); // 45°
 }
 
-void ArmController::interpolatePose(int targetBase, int targetShoulder, int targetElbow, int targetWrist, int durationMs) {
-  if (!isOnline) return;
+void ArmController::update() {
+  if (!driverOnline || !moving) return;
 
-  int steps = max(10, durationMs / 20);
-  float startBase     = currentAngles[SERVO_CH_BASE];
-  float startShoulder = currentAngles[SERVO_CH_SHOULDER];
-  float startElbow    = currentAngles[SERVO_CH_ELBOW];
-  float startWrist    = currentAngles[SERVO_CH_WRIST];
+  unsigned long now = millis();
+  if (now - lastStepTime < 20) return; // 50 Hz interpolation loop
+  lastStepTime = now;
 
-  for (int s = 1; s <= steps; s++) {
-    float t = (float)s / (float)steps;
-    setServoAngle(SERVO_CH_BASE,     (int)(startBase     + t * (targetBase - startBase)));
-    setServoAngle(SERVO_CH_SHOULDER, (int)(startShoulder + t * (targetShoulder - startShoulder)));
-    setServoAngle(SERVO_CH_ELBOW,    (int)(startElbow    + t * (targetElbow - startElbow)));
-    setServoAngle(SERVO_CH_WRIST,    (int)(startWrist    + t * (targetWrist - startWrist)));
-    delay(20);
+  bool allReached = true;
+
+  for (int i = 0; i < NUM_ARM_JOINTS; i++) {
+    float diff = targetAngles[i] - currentAngles[i];
+    if (fabs(diff) > fabs(stepIncrements[i])) {
+      currentAngles[i] += stepIncrements[i];
+      allReached = false;
+    } else {
+      currentAngles[i] = targetAngles[i];
+    }
+    applyHardwarePwm(i, currentAngles[i]);
+  }
+
+  if (allReached) {
+    moving = false;
   }
 }
 
-void ArmController::setPose(ArmPose pose, int durationMs) {
-  switch (pose) {
-    case POSE_REST:
-      // Folded back to isolate center of mass during high-speed transit
-      interpolatePose(90, 30, 150, 80, durationMs);
-      break;
-
-    case POSE_HOVER:
-      // Raised and looking forward towards target payload
-      interpolatePose(90, 75, 90, 90, durationMs);
-      break;
-
-    case POSE_PICK:
-      // Lowered to floor level / conveyor level
-      interpolatePose(90, 110, 65, 45, durationMs);
-      break;
-
-    case POSE_LIFT:
-      // Lifted with payload secured in claw
-      interpolatePose(90, 60, 110, 80, durationMs);
-      break;
-
-    case POSE_DROP:
-      // Extended over target delivery drop bucket
-      interpolatePose(90, 95, 80, 60, durationMs);
-      break;
+int ArmController::getCurrentAngle(uint8_t jointIndex) const {
+  if (jointIndex < NUM_ARM_JOINTS) {
+    return (int)round(currentAngles[jointIndex]);
   }
+  return 90;
+}
+
+ArmTelemetry ArmController::getTelemetry() const {
+  ArmTelemetry telem;
+  telem.baseAngle      = (int)round(currentAngles[0]);
+  telem.shoulderAngle  = (int)round(currentAngles[1]);
+  telem.elbowAngle     = (int)round(currentAngles[2]);
+  telem.joint4Angle    = (int)round(currentAngles[3]);
+  telem.joint5Angle    = (int)round(currentAngles[4]);
+  telem.isMoving       = moving;
+  telem.activePoseType = currentNamedPose;
+  telem.isOnline       = driverOnline;
+  return telem;
 }

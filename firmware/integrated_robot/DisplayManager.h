@@ -11,7 +11,7 @@ class DisplayManager {
 public:
   DisplayManager();
   bool init();
-  void render(const char* stateStr, float x, float y, float ang, const char* rfidTag, bool wifiOk);
+  void render(const char* stateStr, float x, float y, float ang, const char* rfidTag, bool wifiOk, int armBase = 90, int armShoulder = 90);
 
 private:
   Adafruit_SSD1306 display;
