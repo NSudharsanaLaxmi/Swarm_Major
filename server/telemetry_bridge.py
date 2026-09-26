@@ -160,7 +160,8 @@ class UnoQGatewayServer:
                     "dirs": [25, 26, 27, 14, 12, 13, 32, 33],
                     "stbyStatus": "HARDWIRED_HIGH"
                 },
-                "armServos": {"base": 300, "shoulder": 200, "elbow": 200, "wrist": 300, "gripper": 180},
+                "armServos": {"base": 90, "shoulder": 90, "elbow": 90, "joint4": 90, "joint5": 180},
+                "mecanum": {"driveMode": "DRIVE_MODE_TESTED_2CHANNEL_SKID_STEER", "vx": 0.45, "vy": 0.0, "omega": 0.0},
                 "unoQStatus": {"mpuOnline": True, "zephyrMcuOnline": True, "uartLinkBaud": 115200, "uartConnected": True, "cpuLoad": 18, "ramUsageMb": 512},
                 "esp32Status": {"rtosOnline": True, "wifiSignalDbm": -58, "freeHeapBytes": 298450, "watchdogStatus": "OK"}
             },
@@ -200,7 +201,8 @@ class UnoQGatewayServer:
                     "dirs": [25, 26, 27, 14, 12, 13, 32, 33],
                     "stbyStatus": "HARDWIRED_HIGH"
                 },
-                "armServos": {"base": 300, "shoulder": 200, "elbow": 200, "wrist": 300, "gripper": 180},
+                "armServos": {"base": 90, "shoulder": 90, "elbow": 90, "joint4": 90, "joint5": 180},
+                "mecanum": {"driveMode": "DRIVE_MODE_TESTED_2CHANNEL_SKID_STEER", "vx": 0.40, "vy": 0.0, "omega": 0.0},
                 "unoQStatus": {"mpuOnline": True, "zephyrMcuOnline": True, "uartLinkBaud": 115200, "uartConnected": True, "cpuLoad": 22, "ramUsageMb": 530},
                 "esp32Status": {"rtosOnline": True, "wifiSignalDbm": -62, "freeHeapBytes": 295100, "watchdogStatus": "OK"}
             }
@@ -242,7 +244,7 @@ class UnoQGatewayServer:
                 {
                     "robotId": "robot_0",
                     "name": "Robot 1",
-                    "distanceCm": 31.4,
+                    "distanceCm": 32.1,
                     "pathCost": 42.1,
                     "availability": "READY",
                     "battery": 98.0,
@@ -265,7 +267,7 @@ class UnoQGatewayServer:
             "allocatedAt": time.time()
         }
 
-        # 16-Phase Pick-and-Drop Claw State Machine
+        # 16-Phase Pick-and-Drop Claw State Machine (5-DOF MG996R Arm)
         self.claw_state_machine = {
             "phases": [
                 "IDLE",
@@ -288,9 +290,15 @@ class UnoQGatewayServer:
             "currentPhase": "GRIP_CONFIRMED",
             "currentPhaseIndex": 7,
             "targetRackId": "rack_2",
-            "armAngleDeg": 72.0,
+            "armJoints": {
+                "base": 90,
+                "shoulder": 45,
+                "elbow": 135,
+                "joint4": 90,
+                "joint5": 45
+            },
             "gripperState": "CLOSED",
-            "gripperDeg": 85,
+            "gripperDeg": 45,
             "objectDetected": True,
             "gripConfirmed": True
         }
